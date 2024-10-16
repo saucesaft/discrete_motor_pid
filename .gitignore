@@ -1,0 +1,5 @@
+build
+build.ninja
+CM7/build
+CM4/build
+.DS_Store
