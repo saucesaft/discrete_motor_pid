@@ -48,9 +48,12 @@ I2C_HandleTypeDef hi2c1;
 TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN PV */
-void get_encoder_angle(uint32_t *const angle);
-void detectar_vueltas(uint16_t angle, uint16_t pangle, uint16_t *vueltas);
-long map(long x, long in_min, long in_max, long out_min, long out_max);
+void get_encoder_angle (uint32_t *const angle);
+void get_pot_angle (uint32_t *const pot);
+void detectar_vueltas (uint16_t angle, uint16_t pangle, uint16_t *vueltas);
+long map (long x, long in_min, long in_max, long out_min, long out_max);
+void select_ch0 (void);
+void select_ch1 (void);
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -67,6 +70,7 @@ extern uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len);
 /* USER CODE BEGIN 0 */
 uint16_t vueltas = 0;
 uint32_t angle = 0, pangle = 0;
+uint32_t pot = 0;
 int32_t tangle = 0;
 /* USER CODE END 0 */
 
@@ -122,7 +126,9 @@ int main(void)
   {
     counter++;
     get_encoder_angle(&angle);
-    angle = map(angle, 0, 4098, 0, 360);
+    angle = map(angle, 0, 4088, 0, 360);
+    get_pot_angle(&pot);
+    pot = map(pot, 0, 4088, 0, 360);
     detectar_vueltas(angle, pangle, &vueltas);
     tangle = (vueltas * 360) + angle;
 
@@ -147,23 +153,24 @@ int main(void)
     }
 
     uint16_t vel = 65535*vel_mul;
-    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, vel);
-    HAL_TIM_OC_Start(&htim3, TIM_CHANNEL_1);
+    // __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, vel);
+    // HAL_TIM_OC_Start(&htim3, TIM_CHANNEL_1);
 
-    if (dir == 1) {
-      HAL_GPIO_WritePin(MOTOR_DIR1_GPIO_Port, MOTOR_DIR1_Pin, RESET);
-      HAL_GPIO_WritePin(MOTOR_DIR2_GPIO_Port, MOTOR_DIR2_Pin, SET);
-    } else {
-      HAL_GPIO_WritePin(MOTOR_DIR1_GPIO_Port, MOTOR_DIR1_Pin, SET);
-      HAL_GPIO_WritePin(MOTOR_DIR2_GPIO_Port, MOTOR_DIR2_Pin, RESET);
-    }
+    // if (dir == 1) {
+    //   HAL_GPIO_WritePin(MOTOR_DIR1_GPIO_Port, MOTOR_DIR1_Pin, RESET);
+    //   HAL_GPIO_WritePin(MOTOR_DIR2_GPIO_Port, MOTOR_DIR2_Pin, SET);
+    // } else {
+    //   HAL_GPIO_WritePin(MOTOR_DIR1_GPIO_Port, MOTOR_DIR1_Pin, SET);
+    //   HAL_GPIO_WritePin(MOTOR_DIR2_GPIO_Port, MOTOR_DIR2_Pin, RESET);
+    // }
 
     HAL_Delay(1);
 
     ptime = time;
     time = HAL_GetTick();
 
-    printf("%ld, %ld, %ld;\n\r", tangle, vel*dir, time-ptime );
+    printf("%ld, %ld, %ld;\n\r", angle, pot, time-ptime);
+    // printf("%ld, %ld, %ld;\n\r", tangle, vel*dir, time-ptime );
     HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 
     ptime = time;
@@ -245,12 +252,13 @@ static void MX_ADC1_Init(void)
   hadc1.Instance = ADC1;
   hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
-  hadc1.Init.ScanConvMode = DISABLE;
-  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.ScanConvMode = ENABLE;
+  hadc1.Init.ContinuousConvMode = ENABLE;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  // hadc1.Init.NbrOfConversion = 2;
   hadc1.Init.NbrOfConversion = 1;
   hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
@@ -261,13 +269,22 @@ static void MX_ADC1_Init(void)
 
   /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
   */
-  sConfig.Channel = ADC_CHANNEL_0;
-  sConfig.Rank = 1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  // sConfig.Channel = ADC_CHANNEL_0;
+  // sConfig.Rank = 1;
+  // sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+  // if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  // {
+  //   Error_Handler();
+  // }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  // sConfig.Channel = ADC_CHANNEL_1;
+  // sConfig.Rank = 2;
+  // if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  // {
+  //   Error_Handler();
+  // }
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
@@ -410,9 +427,21 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 void get_encoder_angle(uint32_t *const angle) {
+  select_ch0();
+
   HAL_ADC_Start(&hadc1);
-  HAL_ADC_PollForConversion(&hadc1, 1);
+  HAL_ADC_PollForConversion(&hadc1, 1000);
   *angle = HAL_ADC_GetValue(&hadc1);
+  HAL_ADC_Stop(&hadc1);
+}
+
+void get_pot_angle(uint32_t *const pot) {
+  select_ch1();
+
+  HAL_ADC_Start(&hadc1);
+  HAL_ADC_PollForConversion(&hadc1, 1000);
+  *pot = HAL_ADC_GetValue(&hadc1);
+  HAL_ADC_Stop(&hadc1);
 }
 
 void detectar_vueltas(uint16_t angle, uint16_t pangle, uint16_t *vueltas) {
@@ -443,6 +472,31 @@ long map(long x, long in_min, long in_max, long out_min, long out_max)
 {
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
+
+void select_ch0 (void)
+{
+	ADC_ChannelConfTypeDef sConfig = {0};
+  sConfig.Channel = ADC_CHANNEL_0;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_15CYCLES;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+void select_ch1 (void)
+{
+	ADC_ChannelConfTypeDef sConfig = {0};
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_15CYCLES;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
 /* USER CODE END 4 */
 
 /**
