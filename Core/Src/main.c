@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include <stdbool.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -50,7 +51,8 @@ TIM_HandleTypeDef htim3;
 /* USER CODE BEGIN PV */
 void get_encoder_angle (uint32_t *const angle);
 void get_pot_angle (uint32_t *const pot);
-void detectar_vueltas (uint16_t angle, uint16_t pangle, uint16_t *vueltas);
+void step_response(uint32_t *const pot);
+void detectar_vueltas (uint16_t angle, uint16_t pangle, int *vueltas);
 long map (long x, long in_min, long in_max, long out_min, long out_max);
 void select_ch0 (void);
 void select_ch1 (void);
@@ -68,9 +70,9 @@ extern uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint16_t vueltas = 0;
+int vueltas = 0;
 uint32_t angle = 0, pangle = 0;
-uint32_t pot = 0;
+uint32_t pot = 0, pot_s = 0;
 int32_t tangle = 0;
 /* USER CODE END 0 */
 
@@ -108,14 +110,26 @@ int main(void)
   MX_TIM3_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
-  // unsigned long seed = 0xdeadbea7;
-  // unsigned long seed = 0xdeadFAFA;
-  // unsigned long seed = 0xFAFAFAFA;
   unsigned long seed = 0xFFFF;
   uint32_t time = 0, ptime = 0;
   
+  int32_t output = 0, last_output = 0, error = 0, last_error = 0, last_last_error = 0;
+  
+  // modelo estable
+  float Kp = 251.3, Ki = 60.7, Kd = 67.05;
+
+  // modelo que oscila
+  // float Kp = 99350, Ki = 748100, Kd = 947.5;
+
+  // modelo inestable
+  // float Kp = 9549000000000000, Ki = 477400000000000000, Kd = 47740000000000;
+
   uint32_t counter = 0;
-  float vel_mul = 0.01;
+
+  int idx = 0;
+  int lecturas[20] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  long suma = 0;
+  bool full = false;
 
   HAL_TIM_Base_Start(&htim3);
   /* USER CODE END 2 */
@@ -127,14 +141,33 @@ int main(void)
     counter++;
     get_encoder_angle(&angle);
     angle = map(angle, 0, 4088, 0, 360);
-    get_pot_angle(&pot);
-    pot = map(pot, 0, 4088, 0, 360);
     detectar_vueltas(angle, pangle, &vueltas);
     tangle = (vueltas * 360) + angle;
 
     if (tangle < 0) {
       tangle = 0;
     }
+
+    #ifdef step
+    step_response(&pot);
+    #endif
+
+    #ifndef step
+    get_pot_angle(&pot);
+    pot = map(pot, 0, 4096, 0, 360);
+    suma -= lecturas[idx];
+    lecturas[idx] = pot;
+    suma += lecturas[idx];
+    idx = (idx + 1) % 20;
+
+    if (idx == 0) full = true;
+
+    if (full) {
+      pot = (float)suma / 20;
+    } else {
+      pot = (float)suma / (idx + 1);
+    }
+    #endif
 
     unsigned long xo = seed ^ (seed >> 3) >> 1; // señal prbs
     unsigned long dir = (xo & 0x0001); // dirección
@@ -144,34 +177,36 @@ int main(void)
     seed = (seed + (dir << 31));
 
     if (counter >= 200) {
-      vel_mul += 0.05;
       counter = 0;
+      HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
     }
-
-    if (vel_mul > 1) {
-      vel_mul = 0.01;
-    }
-
-    uint16_t vel = 65535*vel_mul;
-    // __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, vel);
-    // HAL_TIM_OC_Start(&htim3, TIM_CHANNEL_1);
-
-    // if (dir == 1) {
-    //   HAL_GPIO_WritePin(MOTOR_DIR1_GPIO_Port, MOTOR_DIR1_Pin, RESET);
-    //   HAL_GPIO_WritePin(MOTOR_DIR2_GPIO_Port, MOTOR_DIR2_Pin, SET);
-    // } else {
-    //   HAL_GPIO_WritePin(MOTOR_DIR1_GPIO_Port, MOTOR_DIR1_Pin, SET);
-    //   HAL_GPIO_WritePin(MOTOR_DIR2_GPIO_Port, MOTOR_DIR2_Pin, RESET);
-    // }
 
     HAL_Delay(1);
 
     ptime = time;
     time = HAL_GetTick();
 
-    printf("%ld, %ld, %ld;\n\r", angle, pot, time-ptime);
+    last_last_error = last_error;
+    last_error = error;
+    error = pot - tangle;
+    last_output = output;
+
+    output = last_output + (Kd / 0.02) * last_last_error + (-Kp - 2.0 * (Kd / 0.02) + (Ki * 0.02)) * last_error + (Kp + (Kd / 0.02)) * error;
+
+    if (output > 0) {
+      HAL_GPIO_WritePin(MOTOR_DIR1_GPIO_Port, MOTOR_DIR1_Pin, SET);
+      HAL_GPIO_WritePin(MOTOR_DIR2_GPIO_Port, MOTOR_DIR2_Pin, RESET);
+      printf("%ld, %ld, %ld \n\r", tangle, pot, time-ptime);
+    } else {
+      HAL_GPIO_WritePin(MOTOR_DIR1_GPIO_Port, MOTOR_DIR1_Pin, RESET);
+      HAL_GPIO_WritePin(MOTOR_DIR2_GPIO_Port, MOTOR_DIR2_Pin, SET);
+      printf("%ld, %ld, %ld \n\r", tangle, pot, time-ptime);
+    }
+
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, abs(output) );
+    HAL_TIM_OC_Start(&htim3, TIM_CHANNEL_1);
+
     // printf("%ld, %ld, %ld;\n\r", tangle, vel*dir, time-ptime );
-    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 
     ptime = time;
     pangle = angle;
@@ -435,6 +470,18 @@ void get_encoder_angle(uint32_t *const angle) {
   HAL_ADC_Stop(&hadc1);
 }
 
+void step_response(uint32_t *const pot) {
+  static uint32_t step_count = 0;
+
+  if (step_count < 5000) {
+    *pot = 0;
+  } else {
+    *pot = 360;
+  };
+
+  step_count++;
+}
+
 void get_pot_angle(uint32_t *const pot) {
   select_ch1();
 
@@ -444,7 +491,7 @@ void get_pot_angle(uint32_t *const pot) {
   HAL_ADC_Stop(&hadc1);
 }
 
-void detectar_vueltas(uint16_t angle, uint16_t pangle, uint16_t *vueltas) {
+void detectar_vueltas(uint16_t angle, uint16_t pangle, int *vueltas) {
   int16_t diferencia = angle - pangle;
 
   // Detecta vueltas completas hacia atrás o adelante basadas en un umbral
