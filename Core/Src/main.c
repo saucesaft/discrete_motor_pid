@@ -194,12 +194,12 @@ int main(void)
     output = last_output + (Kd / 0.02) * last_last_error + (-Kp - 2.0 * (Kd / 0.02) + (Ki * 0.02)) * last_error + (Kp + (Kd / 0.02)) * error;
 
     if (output > 0) {
-      HAL_GPIO_WritePin(MOTOR_DIR1_GPIO_Port, MOTOR_DIR1_Pin, SET);
-      HAL_GPIO_WritePin(MOTOR_DIR2_GPIO_Port, MOTOR_DIR2_Pin, RESET);
+      HAL_GPIO_WritePin(MOTOR_DIR1_GPIO_Port, MOTOR_DIR1_Pin, GPIO_PIN_SET);
+      HAL_GPIO_WritePin(MOTOR_DIR2_GPIO_Port, MOTOR_DIR2_Pin, GPIO_PIN_RESET);
       printf("%ld, %ld, %ld \n\r", tangle, pot, time-ptime);
     } else {
-      HAL_GPIO_WritePin(MOTOR_DIR1_GPIO_Port, MOTOR_DIR1_Pin, RESET);
-      HAL_GPIO_WritePin(MOTOR_DIR2_GPIO_Port, MOTOR_DIR2_Pin, SET);
+      HAL_GPIO_WritePin(MOTOR_DIR1_GPIO_Port, MOTOR_DIR1_Pin, GPIO_PIN_RESET);
+      HAL_GPIO_WritePin(MOTOR_DIR2_GPIO_Port, MOTOR_DIR2_Pin, GPIO_PIN_SET);
       printf("%ld, %ld, %ld \n\r", tangle, pot, time-ptime);
     }
 
@@ -494,11 +494,10 @@ void get_pot_angle(uint32_t *const pot) {
 void detectar_vueltas(uint16_t angle, uint16_t pangle, int *vueltas) {
   int16_t diferencia = angle - pangle;
 
-  // Detecta vueltas completas hacia atrás o adelante basadas en un umbral
   if (diferencia > 180) {
-    *vueltas = *vueltas - 1;  // Vuelta hacia atrás
+    *vueltas = *vueltas - 1;
   } else if (diferencia < -180) {
-    *vueltas = *vueltas + 1;  // Vuelta hacia adelante
+    *vueltas = *vueltas + 1;
   }
 }
 
