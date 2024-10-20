@@ -104,9 +104,6 @@ int main(void)
   MX_TIM3_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
-  // unsigned long seed = 0xdeadbea7;
-  // unsigned long seed = 0xdeadFAFA;
-  // unsigned long seed = 0xFAFAFAFA;
   unsigned long seed = 0xFFFF;
   uint32_t time = 0, ptime = 0;
   
@@ -122,7 +119,7 @@ int main(void)
   {
     counter++;
     get_encoder_angle(&angle);
-    angle = map(angle, 0, 4098, 0, 360);
+    angle = map(angle, 0, 4088, 0, 360);
     detectar_vueltas(angle, pangle, &vueltas);
     tangle = (vueltas * 360) + angle;
 
